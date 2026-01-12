@@ -1,19 +1,107 @@
-import { useState } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import Icon from '@/components/ui/icon';
 import { Card } from '@/components/ui/card';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Separator } from '@/components/ui/separator';
 import { Switch } from '@/components/ui/switch';
+import { useToast } from '@/hooks/use-toast';
+
+interface Message {
+  id: string;
+  text: string;
+  sender: 'user' | 'ai';
+  image?: string;
+  timestamp: Date;
+}
 
 const Index = () => {
-  const [activeTab, setActiveTab] = useState<'home' | 'profile'>('home');
+  const [activeTab, setActiveTab] = useState<'home' | 'chat' | 'profile'>('home');
   const [userName, setUserName] = useState('Александр');
   const [userEmail, setUserEmail] = useState('alex@example.com');
   const [notifications, setNotifications] = useState(true);
   const [darkMode, setDarkMode] = useState(false);
+  
+  const [messages, setMessages] = useState<Message[]>([
+    {
+      id: '1',
+      text: 'Привет! Я могу помочь тебе создать изображения. Просто опиши, что хочешь увидеть! 🎨',
+      sender: 'ai',
+      timestamp: new Date(),
+    },
+  ]);
+  const [inputMessage, setInputMessage] = useState('');
+  const [isGenerating, setIsGenerating] = useState(false);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const { toast } = useToast();
+
+  const scrollToBottom = () => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  };
+
+  useEffect(() => {
+    scrollToBottom();
+  }, [messages]);
+
+  const handleSendMessage = async () => {
+    if (!inputMessage.trim() || isGenerating) return;
+
+    const userMessage: Message = {
+      id: Date.now().toString(),
+      text: inputMessage,
+      sender: 'user',
+      timestamp: new Date(),
+    };
+
+    setMessages(prev => [...prev, userMessage]);
+    setInputMessage('');
+    setIsGenerating(true);
+
+    const aiThinkingMessage: Message = {
+      id: (Date.now() + 1).toString(),
+      text: 'Создаю изображение...',
+      sender: 'ai',
+      timestamp: new Date(),
+    };
+    setMessages(prev => [...prev, aiThinkingMessage]);
+
+    try {
+      const response = await fetch('https://nano-image-gen.deno.dev', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ prompt: inputMessage }),
+      });
+
+      const data = await response.json();
+
+      setMessages(prev => 
+        prev.filter(m => m.id !== aiThinkingMessage.id).concat({
+          id: Date.now().toString(),
+          text: 'Вот что получилось! 🎨',
+          sender: 'ai',
+          image: data.imageUrl,
+          timestamp: new Date(),
+        })
+      );
+    } catch (error) {
+      setMessages(prev => 
+        prev.filter(m => m.id !== aiThinkingMessage.id).concat({
+          id: Date.now().toString(),
+          text: 'Произошла ошибка при генерации изображения. Попробуй ещё раз!',
+          sender: 'ai',
+          timestamp: new Date(),
+        })
+      );
+      toast({
+        title: 'Ошибка',
+        description: 'Не удалось сгенерировать изображение',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsGenerating(false);
+    }
+  };
 
   return (
     <div className="min-h-screen bg-background flex flex-col">
@@ -35,18 +123,21 @@ const Index = () => {
             </div>
 
             <div className="px-6 space-y-5">
-              <Card className="p-0 overflow-hidden hover:scale-[1.02] transition-all duration-300 hover:shadow-2xl border-0">
+              <Card 
+                className="p-0 overflow-hidden hover:scale-[1.02] transition-all duration-300 hover:shadow-2xl border-0 cursor-pointer"
+                onClick={() => setActiveTab('chat')}
+              >
                 <div className="gradient-purple-pink p-6">
                   <div className="flex items-center gap-4">
                     <div className="w-14 h-14 rounded-2xl bg-white/20 backdrop-blur-sm flex items-center justify-center">
-                      <span className="text-3xl">✨</span>
+                      <span className="text-3xl">🤖</span>
                     </div>
                     <div className="flex-1">
                       <h3 className="font-bold text-white text-lg mb-1">
-                        Быстрый старт
+                        AI Чат
                       </h3>
                       <p className="text-sm text-white/80">
-                        Начни свой день правильно
+                        Генерация изображений
                       </p>
                     </div>
                     <Icon name="ArrowRight" size={24} className="text-white" />
@@ -139,6 +230,99 @@ const Index = () => {
                     </div>
                   </div>
                 ))}
+              </div>
+            </div>
+          </div>
+        ) : activeTab === 'chat' ? (
+          <div className="animate-fade-in h-full flex flex-col">
+            <div className="px-6 pt-8 pb-4 bg-card/50 backdrop-blur-sm sticky top-0 z-10 border-b border-border/50">
+              <div className="flex items-center gap-3">
+                <button 
+                  onClick={() => setActiveTab('home')}
+                  className="p-2 rounded-xl hover:bg-muted transition-colors"
+                >
+                  <Icon name="ArrowLeft" size={24} className="text-foreground" />
+                </button>
+                <div className="w-12 h-12 rounded-2xl gradient-purple-pink flex items-center justify-center">
+                  <span className="text-2xl">🤖</span>
+                </div>
+                <div>
+                  <h2 className="text-xl font-bold text-foreground">AI Нейросеть</h2>
+                  <p className="text-xs text-muted-foreground">Генерация изображений</p>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex-1 overflow-y-auto px-6 py-6 space-y-4">
+              {messages.map((message) => (
+                <div
+                  key={message.id}
+                  className={`flex gap-3 animate-fade-in ${
+                    message.sender === 'user' ? 'flex-row-reverse' : 'flex-row'
+                  }`}
+                >
+                  <Avatar className={`w-10 h-10 flex-shrink-0 ${
+                    message.sender === 'ai' ? 'gradient-purple-pink' : 'gradient-blue-cyan'
+                  }`}>
+                    <AvatarFallback className="text-white font-bold">
+                      {message.sender === 'ai' ? '🤖' : userName.charAt(0)}
+                    </AvatarFallback>
+                  </Avatar>
+                  
+                  <div className={`max-w-[75%] ${
+                    message.sender === 'user' ? 'items-end' : 'items-start'
+                  } flex flex-col gap-2`}>
+                    <div className={`px-4 py-3 rounded-2xl ${
+                      message.sender === 'user'
+                        ? 'gradient-blue-cyan text-white'
+                        : 'bg-card border border-border text-foreground'
+                    }`}>
+                      <p className="text-sm leading-relaxed">{message.text}</p>
+                    </div>
+                    
+                    {message.image && (
+                      <div className="rounded-2xl overflow-hidden shadow-lg">
+                        <img 
+                          src={message.image} 
+                          alt="Generated" 
+                          className="w-full h-auto"
+                        />
+                      </div>
+                    )}
+                    
+                    <span className="text-xs text-muted-foreground px-2">
+                      {message.timestamp.toLocaleTimeString('ru-RU', { 
+                        hour: '2-digit', 
+                        minute: '2-digit' 
+                      })}
+                    </span>
+                  </div>
+                </div>
+              ))}
+              <div ref={messagesEndRef} />
+            </div>
+
+            <div className="px-6 py-4 bg-card/80 backdrop-blur-xl border-t border-border/50">
+              <div className="flex gap-2">
+                <Input
+                  value={inputMessage}
+                  onChange={(e) => setInputMessage(e.target.value)}
+                  onKeyPress={(e) => e.key === 'Enter' && handleSendMessage()}
+                  placeholder="Опиши изображение..."
+                  disabled={isGenerating}
+                  className="h-12 rounded-2xl"
+                />
+                <Button
+                  onClick={handleSendMessage}
+                  disabled={!inputMessage.trim() || isGenerating}
+                  className="h-12 px-6 rounded-2xl gradient-purple-pink text-white font-semibold"
+                >
+                  {isGenerating ? (
+                    <Icon name="Loader2" size={20} className="animate-spin" />
+                  ) : (
+                    <Icon name="Send" size={20} />
+                  )}
+                </Button>
               </div>
             </div>
           </div>
@@ -285,6 +469,21 @@ const Index = () => {
               <Icon name="Home" size={24} />
             </div>
             <span className="text-xs font-bold">Главная</span>
+          </button>
+          <button
+            onClick={() => setActiveTab('chat')}
+            className={`flex flex-col items-center gap-2 transition-all duration-300 ${
+              activeTab === 'chat' 
+                ? 'text-primary scale-110' 
+                : 'text-muted-foreground scale-100'
+            }`}
+          >
+            <div className={`p-3 rounded-2xl transition-all ${
+              activeTab === 'chat' ? 'bg-primary/10' : 'bg-transparent'
+            }`}>
+              <Icon name="MessageCircle" size={24} />
+            </div>
+            <span className="text-xs font-bold">Чат</span>
           </button>
           <button
             onClick={() => setActiveTab('profile')}
